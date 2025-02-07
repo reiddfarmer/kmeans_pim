@@ -179,7 +179,6 @@ int main(int argc, char *argv[])
     printf("Loaded dataset: %u points, %u features, %u clusters\n",
            n_points, n_features, n_clusters);
 
-
     // CPU reference for 10 iters
     feature_t *cpu_ctds = malloc(n_clusters * n_features * sizeof(feature_t));
     // init
@@ -329,9 +328,9 @@ int main(int argc, char *argv[])
             size_t sum_bytes   = n_clusters*n_features*sizeof(sum_t);
             size_t count_bytes = n_clusters*sizeof(count_t);
 
-            uint32_t i=0;
+            // uint32_t i=0;
             struct dpu_set_t each;
-            DPU_FOREACH(dpus, each, i) {
+            DPU_FOREACH(dpus, each) {
                 // allocate temporary local buffers
                 sum_t   *acc_sums_local   = calloc(n_clusters * n_features, sizeof(sum_t));
                 count_t *acc_counts_local = calloc(n_clusters, sizeof(count_t));
@@ -350,14 +349,14 @@ int main(int argc, char *argv[])
                             count_bytes,
                             DPU_XFER_DEFAULT);
 
-                printf("[Host] After iteration %u, partial from DPU %u:\n", iter, i);
-                for (unsigned c = 0; c < n_clusters; c++) {
-                    printf("  cluster %u => sum_local=( ", c);
-                    for (unsigned f = 0; f < n_features; f++) {
-                        printf("%.2f ", acc_sums_local[c*n_features + f]);
-                    }
-                    printf("), count_local=%lu\n", (unsigned long)acc_counts_local[c]);
-                }
+                // printf("[Host] After iteration %u, partial from DPU %u:\n", iter, i);
+                // for (unsigned c = 0; c < n_clusters; c++) {
+                //     printf("  cluster %u => sum_local=( ", c);
+                //     for (unsigned f = 0; f < n_features; f++) {
+                //         printf("%.2f ", acc_sums_local[c*n_features + f]);
+                //     }
+                //     printf("), count_local=%lu\n", (unsigned long)acc_counts_local[c]);
+                // }
 
                 // accumulate into the global arrays
                 for (unsigned c = 0; c < n_clusters; c++) {

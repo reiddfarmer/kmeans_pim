@@ -13,7 +13,7 @@ typedef uint64_t dpu_count_t;
 
 // allowed maximum
 #ifndef NR_TASKLETS
-#define NR_TASKLETS 8  
+#define NR_TASKLETS 8  // e.g. 8
 #endif
 
 #ifndef MAX_POINTS_DPU
@@ -49,7 +49,7 @@ __dma_aligned dpu_count_t tasklet_counts[NR_TASKLETS][MAX_CLUSTERS];
 BARRIER_INIT(my_barrier, NR_TASKLETS);
 
 /**
- * each tasklet processes a sub-range of the DPU's local points.
+ * Each tasklet processes a sub-range of the DPU's local points.
  */
 int main() {
     // read arguments
@@ -65,6 +65,7 @@ int main() {
     memset(tasklet_counts[t_id], 0, sizeof(dpu_count_t ) * nclusters);
 
     // figure out sub-range of points for THIS tasklet
+    // e.g. block distribution
     uint32_t points_per_tasklet = dpu_points / NR_TASKLETS;
     uint32_t remainder = dpu_points % NR_TASKLETS;
     // a typical approach: let first 'remainder' tasklets each handle +1 point

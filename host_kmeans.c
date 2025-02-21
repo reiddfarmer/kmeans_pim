@@ -1,7 +1,7 @@
 /**
  * host_kmeans.c
  *
- * A minimal single-DPU, single-tasklet K-Means code that:
+ * UPMEM K-Means code that:
  *   - loads data (points) from a text file
  *   - runs a CPU reference K-Means solution for comparison
  *   - rushes data to the DPU
@@ -37,102 +37,131 @@ typedef struct {
  *   (p1_f1 p1_f2 ... p1_fN)
  *   ...
  */
-static feature_t *read_data_from_file(const char *filename,
-                                      unsigned *p_points,
-                                      unsigned *p_features,
-                                      unsigned *p_clusters)
+//  static feature_t *read_data_from_file(const char *filename,
+//                                        unsigned *p_points,
+//                                        unsigned *p_features,
+//                                        unsigned *p_clusters)
+//  {
+//      FILE *fp = fopen(filename, "r");
+//      if (!fp) {
+//          fprintf(stderr, "Could not open file '%s'\n", filename);
+//          exit(1);
+//      }
+//      if (fscanf(fp, "%u %u %u", p_points, p_features, p_clusters) != 3) {
+//          fprintf(stderr, "Error reading #points,#features,#clusters\n");
+//          exit(1);
+//      }
+//      unsigned n_points   = *p_points;
+//      unsigned n_features = *p_features;
+
+//      feature_t *data = malloc(n_points * n_features * sizeof(feature_t));
+//      if (!data) {
+//          fprintf(stderr, "Memory alloc error for data\n");
+//          exit(1);
+//      }
+
+//      for (unsigned i = 0; i < n_points; i++) {
+//          for (unsigned f = 0; f < n_features; f++) {
+//              int temp;
+//              fscanf(fp, "%d", &temp);
+//              data[i*n_features + f] = (feature_t) temp;
+//          }
+//      }
+//      fclose(fp);
+//      return data;
+//  }
+
+/**
+ * generate_data
+ * format:
+ *   #points #features #clusters
+ *   (p1_f1 p1_f2 ... p1_fN)
+ *   ...
+ */
+#define MAX_NUMBER 99
+static feature_t *generate_data(
+   unsigned *p_points,
+   unsigned *p_features)
 {
-    FILE *fp = fopen(filename, "r");
-    if (!fp) {
-        fprintf(stderr, "Could not open file '%s'\n", filename);
-        exit(1);
-    }
-    if (fscanf(fp, "%u %u %u", p_points, p_features, p_clusters) != 3) {
-        fprintf(stderr, "Error reading #points,#features,#clusters\n");
-        exit(1);
-    }
-    unsigned n_points   = *p_points;
-    unsigned n_features = *p_features;
+unsigned n_points   = *p_points;
+unsigned n_features = *p_features;
 
-    feature_t *data = malloc(n_points * n_features * sizeof(feature_t));
-    if (!data) {
-        fprintf(stderr, "Memory alloc error for data\n");
-        exit(1);
-    }
+feature_t *data = malloc(n_points * n_features * sizeof(feature_t));
+if (!data) {
+fprintf(stderr, "Memory alloc error for data\n");
+exit(1);
+}
 
-    for (unsigned i = 0; i < n_points; i++) {
-        for (unsigned f = 0; f < n_features; f++) {
-            int temp;
-            fscanf(fp, "%d", &temp);
-            data[i*n_features + f] = (feature_t) temp;
-        }
-    }
-    fclose(fp);
-    return data;
+for (unsigned i = 0; i < n_points; i++) {
+for (unsigned f = 0; f < n_features; f++) {
+data[i * n_features + f] = (feature_t)(rand() % MAX_NUMBER);
+}}
+return data;
+
 }
 
 /**
  * CPU reference K-Means for comparison
  */
-static void cpu_reference_kmeans(const feature_t *points,
-                                 feature_t       *centroids,
-                                 unsigned n_points,
-                                 unsigned n_features,
-                                 unsigned n_clusters,
-                                 unsigned iters)
-{
-    sum_t   *acc_sums   = calloc(n_clusters * n_features, sizeof(sum_t));
-    count_t *acc_counts = calloc(n_clusters, sizeof(count_t));
-    if (!acc_sums || !acc_counts) {
-        fprintf(stderr, "Memory alloc error in cpu_reference_kmeans\n");
-        exit(1);
-    }
+//  static void cpu_reference_kmeans(const feature_t *points,
+//                                   feature_t       *centroids,
+//                                   unsigned n_points,
+//                                   unsigned n_features,
+//                                   unsigned n_clusters,
+//                                   unsigned iters)
+//  {
+//      sum_t   *acc_sums   = calloc(n_clusters * n_features, sizeof(sum_t));
+//      count_t *acc_counts = calloc(n_clusters, sizeof(count_t));
+//      if (!acc_sums || !acc_counts) {
+//          fprintf(stderr, "Memory alloc error in cpu_reference_kmeans\n");
+//          exit(1);
+//      }
 
-    for (unsigned iter = 0; iter < iters; iter++) {
-        // reset accumulators
-        memset(acc_sums,   0, n_clusters * n_features * sizeof(sum_t));
-        memset(acc_counts, 0, n_clusters * sizeof(count_t));
+//      for (unsigned iter = 0; iter < iters; iter++) {
+//          // reset accumulators
+//          memset(acc_sums,   0, n_clusters * n_features * sizeof(sum_t));
+//          memset(acc_counts, 0, n_clusters * sizeof(count_t));
 
-        // assign each point to nearest cluster
-        for (unsigned i = 0; i < n_points; i++) {
-            double best_dist = DBL_MAX;
-            int best_cl = -1;
-            for (unsigned c = 0; c < n_clusters; c++) {
-                double dist_c = 0.0;
-                for (unsigned f = 0; f < n_features; f++) {
-                    double diff = points[i*n_features + f]
-                                - centroids[c*n_features + f];
-                    dist_c += diff*diff;
-                }
-                if (dist_c < best_dist) {
-                    best_dist = dist_c;
-                    best_cl = c;
-                }
-            }
-            if (best_cl < 0) {
-                fprintf(stderr, "Error: negative cluster assignment!\n");
-                exit(1);
-            }
-            acc_counts[best_cl]++;
-            for (unsigned f = 0; f < n_features; f++) {
-                acc_sums[best_cl*n_features + f] += points[i*n_features + f];
-            }
-        }
+//          // assign each point to nearest cluster
+//          for (unsigned i = 0; i < n_points; i++) {
+//              double best_dist = DBL_MAX;
+//              int best_cl = -1;
+//              for (unsigned c = 0; c < n_clusters; c++) {
+//                  double dist_c = 0.0;
+//                  for (unsigned f = 0; f < n_features; f++) {
+//                      double diff = points[i*n_features + f]
+//                                  - centroids[c*n_features + f];
+//                      dist_c += diff*diff;
+//                  }
+//                  if (dist_c < best_dist) {
+//                      best_dist = dist_c;
+//                      best_cl = c;
+//                  }
+//              }
+//              if (best_cl < 0) {
+//                  fprintf(stderr, "Error: negative cluster assignment!\n");
+//                  exit(1);
+//              }
+//              acc_counts[best_cl]++;
+//              for (unsigned f = 0; f < n_features; f++) {
+//                  acc_sums[best_cl*n_features + f] += points[i*n_features + f];
+//              }
+//          }
 
-        // update centroids
-        for (unsigned c = 0; c < n_clusters; c++) {
-            if (acc_counts[c] > 0) {
-                for (unsigned f = 0; f < n_features; f++) {
-                    centroids[c*n_features + f] =
-                      acc_sums[c*n_features + f] / (double)acc_counts[c];
-                }
-            }
-        }
-    }
+//          // update centroids
+//          for (unsigned c = 0; c < n_clusters; c++) {
+//              if (acc_counts[c] > 0) {
+//                  for (unsigned f = 0; f < n_features; f++) {
+//                      centroids[c*n_features + f] =
+//                        acc_sums[c*n_features + f] / (double)acc_counts[c];
+//                  }
+//              }
+//          }
+//      }
 
-    free(acc_sums);
-    free(acc_counts);
-}
+//      free(acc_sums);
+//      free(acc_counts);
+//  }
 
 // simple frobenius norm to measure shift
 static double frob_norm(const feature_t *oldc,
@@ -151,51 +180,64 @@ static double frob_norm(const feature_t *oldc,
 }
 
 // print centroids
-static void print_centroids(const char* label,
-                            const feature_t *ctds,
-                            unsigned n_clusters,
-                            unsigned n_features)
-{
-    printf("%s:\n", label);
-    for (unsigned c = 0; c < n_clusters; c++) {
-        printf(" cluster %u => (", c);
-        for (unsigned f = 0; f < n_features; f++) {
-            printf("%.2f", ctds[c*n_features + f]);
-            if (f < n_features - 1) printf(", ");
-        }
-        printf(")\n");
-    }
-}
+//  static void print_centroids(const char* label,
+//                              const feature_t *ctds,
+//                              unsigned n_clusters,
+//                              unsigned n_features)
+//  {
+//      printf("%s:\n", label);
+//      for (unsigned c = 0; c < n_clusters; c++) {
+//          printf(" cluster %u => (", c);
+//          for (unsigned f = 0; f < n_features; f++) {
+//              printf("%.2f", ctds[c*n_features + f]);
+//              if (f < n_features - 1) printf(", ");
+//          }
+//          printf(")\n");
+//      }
+//  }
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2) {
-        printf("Usage: %s data.txt\n", argv[0]);
-        return 1;
-    }
+   //default
+   unsigned n_points   = 1024;
+   unsigned n_features = 2;
+   unsigned n_clusters = 5;
 
-    unsigned n_points, n_features, n_clusters;
-    feature_t *points = read_data_from_file(argv[1],
-                                            &n_points, &n_features, &n_clusters);
+   if (argc == 4) {
+       /* Parse command-line integers. */
+       n_points   = (unsigned)atoi(argv[1]);
+       n_features = (unsigned)atoi(argv[2]);
+       n_clusters = (unsigned)atoi(argv[3]);
+   }
+   else if (argc > 0) {
+       fprintf(stderr, "Usage: %s <n_points> <n_features> <n_clusters>\n", argv[0]);
+       return 1;
+   }
+
+   //  feature_t *points = read_data_from_file(argv[1],
+   //                                          &n_points, &n_features, &n_clusters);
+
+   feature_t *points = generate_data(
+       &n_points, &n_features);
     printf("Loaded dataset: %u points, %u features, %u clusters\n",
            n_points, n_features, n_clusters);
 
     // CPU reference for 10 iters
-    feature_t *cpu_ctds = malloc(n_clusters * n_features * sizeof(feature_t));
-    // init centroids
-    for (unsigned c = 0; c < n_clusters; c++) {
-        for (unsigned f = 0; f < n_features; f++) {
-            cpu_ctds[c*n_features + f] = 10.0 * c;
-        }
-    }
-    cpu_reference_kmeans(points, cpu_ctds,
-                         n_points, n_features, n_clusters,
-                         10);
-    print_centroids("CPU final (10 iters)", cpu_ctds,
-                    n_clusters, n_features);
+   //  feature_t *cpu_ctds = malloc(n_clusters * n_features * sizeof(feature_t));
+   //  // init centroids
+   //  for (unsigned c = 0; c < n_clusters; c++) {
+   //      for (unsigned f = 0; f < n_features; f++) {
+   //          cpu_ctds[c*n_features + f] = 10.0 * c;
+   //      }
+   //  }
+   //  cpu_reference_kmeans(points, cpu_ctds,
+   //                       n_points, n_features, n_clusters,
+   //                       10);
+   //  print_centroids("CPU final (10 iters)", cpu_ctds,
+   //                  n_clusters, n_features);
 
     // now, run the DPU-based K-means
-    // multi DPU, single tasklet
+
 
     // allocate + load DPUs
     struct dpu_set_t dpus;
@@ -249,7 +291,7 @@ int main(int argc, char *argv[])
                           DPU_XFER_DEFAULT));
 
             // debug print
-            printf("[Host] DPU %u => offset=%u, count=%u\n", i, offset_in_points, count_points);
+           //  printf("[Host] DPU %u => offset=%u, count=%u\n", i, offset_in_points, count_points);
         }
 
         // push the arguments
@@ -277,10 +319,9 @@ int main(int argc, char *argv[])
     unsigned iter     = 0;
     double shift      = 99999.0;
 
-    // --- Start timing (similar to C++ using std::chrono) ---
+    // start timer
     struct timespec start, finish;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    // -------------------------------------------------------
 
     while ((iter < MAX_ITER) && (shift > threshold)) {
         iter++;
@@ -356,17 +397,14 @@ int main(int argc, char *argv[])
         free(acc_counts_global);
 
         shift = frob_norm(old_ctds, dpu_ctds, n_clusters, n_features);
-        printf("Iteration %u: shift=%.2f\n", iter, shift);
+       //  printf("Iteration %u: shift=%.2f\n", iter, shift);
 
         free(old_ctds);
     }
 
-    // --- End timing ---
+    // end timing
     clock_gettime(CLOCK_MONOTONIC, &finish);
-    double elapsed = (finish.tv_sec - start.tv_sec) * 1e3 +
-                     (finish.tv_nsec - start.tv_nsec) / 1e6;
-    printf("Host elapsed time: %.3f ms.\n", elapsed);
-    // ------------------
+    
 
     printf("DPU final after %u iteration(s):\n", iter);
     for (unsigned c = 0; c < n_clusters; c++) {
@@ -377,22 +415,25 @@ int main(int argc, char *argv[])
         }
         printf(")\n");
     }
+    double elapsed = (finish.tv_sec - start.tv_sec) * 1e3 +
+                     (finish.tv_nsec - start.tv_nsec) / 1e6;
+    printf("Host elapsed time: %.3f ms.\n", elapsed);
 
     // compare with CPU reference result
-    printf("\nCPU final (10 iters):\n");
-    for (unsigned c = 0; c < n_clusters; c++) {
-        printf(" cluster %u => (", c);
-        for (unsigned f = 0; f < n_features; f++) {
-            printf("%.2f", cpu_ctds[c*n_features + f]);
-            if (f < n_features - 1) printf(", ");
-        }
-        printf(")\n");
-    }
+   //  printf("\nCPU final (10 iters):\n");
+   //  for (unsigned c = 0; c < n_clusters; c++) {
+   //      printf(" cluster %u => (", c);
+   //      for (unsigned f = 0; f < n_features; f++) {
+   //          printf("%.2f", cpu_ctds[c*n_features + f]);
+   //          if (f < n_features - 1) printf(", ");
+   //      }
+   //      printf(")\n");
+   //  }
 
     // cleanup
     DPU_ASSERT(dpu_free(dpus));
     free(points);
-    free(cpu_ctds);
+   //  free(cpu_ctds);
     free(dpu_ctds);
     free(partitions);
     free(all_args);

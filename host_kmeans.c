@@ -251,6 +251,7 @@ return data;
      // retrieve # of DPUs
      uint32_t nr_of_dpus;
      DPU_ASSERT(dpu_get_nr_dpus(dpus, &nr_of_dpus));
+     printf("Number of DPUs: %i\n", nr_of_dpus);
  
      // partition the points
      typedef struct {

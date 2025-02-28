@@ -18,7 +18,7 @@
 
 /* basic DPU defaults */
 #ifndef NR_DPUS
-#define NR_DPUS 1
+#define NR_DPUS 8
 #endif
 #ifndef NR_TASKLETS
 #define NR_TASKLETS 16

@@ -18,12 +18,13 @@ typedef uint64_t dpu_count_t;
 
 #ifndef MAX_POINTS_DPU
 #define MAX_POINTS_DPU 65536
+// 65536
 #endif
 #ifndef MAX_FEATURES
 #define MAX_FEATURES 16
 #endif
 #ifndef MAX_CLUSTERS
-#define MAX_CLUSTERS 16
+#define MAX_CLUSTERS 20
 #endif
 
 // MRAM arrays

@@ -16,13 +16,13 @@
   typedef unsigned int count_t;
 #endif
 
-/* basic DPU defaults */
-#ifndef NR_DPUS
-#define NR_DPUS 8
-#endif
-#ifndef NR_TASKLETS
-#define NR_TASKLETS 16
-#endif
+// /* basic DPU defaults */
+// #ifndef NR_DPUS
+// #define NR_DPUS 8
+// #endif
+// #ifndef NR_TASKLETS
+// #define NR_TASKLETS 16
+// #endif
 
 /* structure broadcast from host to DPU each iteration */
 typedef struct {

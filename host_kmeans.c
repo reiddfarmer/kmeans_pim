@@ -242,6 +242,18 @@ return data;
  
     //  now, run the DPU-based K-means
 
+     // set up dpu timers
+     struct timespec dpu_set_up, dpu_set_up2;
+     struct timespec dpu_start, dpu_finish;
+     struct timespec dpu_calc1, dpu_calc2;
+     struct timespec dpu_read1, dpu_read2;
+    
+     // variables to store overall times over loops
+     double dpu_calc_time = 0;
+     double dpu_read_time = 0;
+
+     // start dpu set_up timer
+     clock_gettime(CLOCK_MONOTONIC, &dpu_set_up);
  
      // allocate + load DPUs
      struct dpu_set_t dpus;
@@ -309,6 +321,9 @@ return data;
                    sizeof(dpu_arguments_t),
                    DPU_XFER_DEFAULT));
      }
+     clock_gettime(CLOCK_MONOTONIC, &dpu_set_up2);
+     double dpu_set_up_elapsed = (dpu_set_up2.tv_sec - dpu_set_up.tv_sec) * 1e3 +
+                      (dpu_set_up2.tv_nsec - dpu_set_up.tv_nsec) / 1e6;
  
      // prepare centroids on host side
      feature_t *dpu_ctds = malloc(n_clusters * n_features * sizeof(feature_t));
@@ -324,10 +339,9 @@ return data;
      unsigned iter     = 0;
      double shift      = 99999.0;
  
-     // start dpu timer
-     struct timespec dpu_start, dpu_finish;
+     //start overall dpu timer
      clock_gettime(CLOCK_MONOTONIC, &dpu_start);
- 
+     
      while ((iter < MAX_ITER) && (shift > threshold)) {
          iter++;
  
@@ -349,45 +363,55 @@ return data;
          }
  
          // launch DPUs
+         clock_gettime(CLOCK_MONOTONIC, &dpu_calc1);
          DPU_ASSERT(dpu_launch(dpus, DPU_SYNCHRONOUS));
+         clock_gettime(CLOCK_MONOTONIC, &dpu_calc2);
+         dpu_calc_time += (dpu_calc2.tv_sec - dpu_calc1.tv_sec) * 1e3 +
+                      (dpu_calc2.tv_nsec - dpu_calc1.tv_nsec) / 1e6;
+
  
          // allocate global accumulators
          sum_t   *acc_sums_global   = calloc(n_clusters * n_features, sizeof(sum_t));
          count_t *acc_counts_global = calloc(n_clusters, sizeof(count_t));
  
-         // read partial sums and counts from each DPU and accumulate
-         {
-             size_t sum_bytes   = n_clusters * n_features * sizeof(sum_t);
-             size_t count_bytes = n_clusters * sizeof(count_t);
- 
-             struct dpu_set_t each;
-             DPU_FOREACH(dpus, each) {
-                 sum_t   *acc_sums_local   = calloc(n_clusters * n_features, sizeof(sum_t));
-                 count_t *acc_counts_local = calloc(n_clusters, sizeof(count_t));
- 
-                 DPU_ASSERT(dpu_prepare_xfer(each, acc_sums_local));
-                 DPU_ASSERT(dpu_push_xfer(each, DPU_XFER_FROM_DPU,
-                             "centers_sum_mram", 0,
-                             sum_bytes,
-                             DPU_XFER_DEFAULT));
- 
-                 DPU_ASSERT(dpu_prepare_xfer(each, acc_counts_local));
-                 DPU_ASSERT(dpu_push_xfer(each, DPU_XFER_FROM_DPU,
-                             "centers_count_mram", 0,
-                             count_bytes,
-                             DPU_XFER_DEFAULT));
- 
-                 for (unsigned c = 0; c < n_clusters; c++) {
-                     acc_counts_global[c] += acc_counts_local[c];
-                     for (unsigned f = 0; f < n_features; f++) {
-                         acc_sums_global[c*n_features + f] += acc_sums_local[c*n_features + f];
-                     }
-                 }
- 
-                 free(acc_sums_local);
-                 free(acc_counts_local);
-             }
-         }
+        // read partial sums and counts from each DPU and accumulate
+        size_t sum_bytes   = n_clusters * n_features * sizeof(sum_t);
+        size_t count_bytes = n_clusters * sizeof(count_t);
+
+        struct dpu_set_t each;
+        DPU_FOREACH(dpus, each) {
+            sum_t   *acc_sums_local   = calloc(n_clusters * n_features, sizeof(sum_t));
+            count_t *acc_counts_local = calloc(n_clusters, sizeof(count_t));
+            
+            //time incoming reads from dpu to host
+            clock_gettime(CLOCK_MONOTONIC, &dpu_read1);
+            DPU_ASSERT(dpu_prepare_xfer(each, acc_sums_local));
+            DPU_ASSERT(dpu_push_xfer(each, DPU_XFER_FROM_DPU,
+                        "centers_sum_mram", 0,
+                        sum_bytes,
+                        DPU_XFER_DEFAULT));
+
+            DPU_ASSERT(dpu_prepare_xfer(each, acc_counts_local));
+            DPU_ASSERT(dpu_push_xfer(each, DPU_XFER_FROM_DPU,
+                        "centers_count_mram", 0,
+                        count_bytes,
+                        DPU_XFER_DEFAULT));
+
+            clock_gettime(CLOCK_MONOTONIC, &dpu_read2);
+            dpu_read_time += (dpu_read2.tv_sec - dpu_read1.tv_sec) * 1e3 +
+                      (dpu_read2.tv_nsec - dpu_read1.tv_nsec) / 1e6;
+
+            for (unsigned c = 0; c < n_clusters; c++) {
+                acc_counts_global[c] += acc_counts_local[c];
+                for (unsigned f = 0; f < n_features; f++) {
+                    acc_sums_global[c*n_features + f] += acc_sums_local[c*n_features + f];
+                }
+            }
+
+            free(acc_sums_local);
+            free(acc_counts_local);
+        }
+    
  
          // update centroids on host using the aggregated results
          for (unsigned c = 0; c < n_clusters; c++) {
@@ -409,6 +433,8 @@ return data;
  
      // end timing
      clock_gettime(CLOCK_MONOTONIC, &dpu_finish);
+     double dpu_elapsed = (dpu_finish.tv_sec - dpu_start.tv_sec) * 1e3 +
+                    (dpu_finish.tv_nsec - dpu_start.tv_nsec) / 1e6;
      
  
      printf("DPU final after %u iteration(s):\n", iter);
@@ -420,11 +446,14 @@ return data;
          }
          printf(")\n");
      }
-     double dpu_elapsed = (dpu_finish.tv_sec - dpu_start.tv_sec) * 1e3 +
-                      (dpu_finish.tv_nsec - dpu_start.tv_nsec) / 1e6;
+
+    //print all timings
     printf("CPU Implementation elapsed time: %.3f ms.\n", cpu_elapsed);
+    printf("DPU Set Up Time: %.3f ms.\n", dpu_set_up_elapsed);
+    printf("DPU Calculation time: %.3f ms.\n", dpu_calc_time);
+    printf("Read from DPU to Host time: %.3f ms.\n", dpu_read_time);
     printf("DPU Implementation elapsed time (without set up): %.3f ms.\n", dpu_elapsed);
- 
+
     // cleanup
     DPU_ASSERT(dpu_free(dpus));
     free(points);

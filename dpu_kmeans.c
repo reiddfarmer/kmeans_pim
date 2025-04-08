@@ -2,9 +2,8 @@
  * dpu_kmeans.c
  *
  *
- * Each tasklet processes its assigned points in bursts of up to 16 points
- * (maximum 2048 bytes per DMA transfer). With NR_TASKLETS tasklets, each gets
- * its own 2 KB buffer, for a total of 2KB*NR_TASKLETS extra WRAM. (CURRENT MAXIMUM OF 8 TASKLETS)
+ * Each tasklet processes its assigned points in bursts of up to 2048 bytes per DMA transfer
+ * With NR_TASKLETS tasklets, each gets its own 2 KB buffer, for a total of 2KB*NR_TASKLETS extra WRAM. (CURRENT MAXIMUM OF 8 TASKLETS)
  */
 
  #include <defs.h>
@@ -56,7 +55,7 @@
  __dma_aligned dpu_sum_t   tasklet_sums[NR_TASKLETS][MAX_CLUSTERS * MAX_FEATURES];
  __dma_aligned dpu_count_t tasklet_counts[NR_TASKLETS][MAX_CLUSTERS];
  
-// each tasklet gets its own scratch buffer in WRAM for DMA, each holding 16 points
+// each tasklet gets its own scratch buffer in WRAM for DMA (16 * 16 features = 256 dpu_feature_t (double) * 8 bytes = 2048 bytes)
  __dma_aligned dpu_feature_t tasklet_buf[NR_TASKLETS][16 * MAX_FEATURES];
  
  BARRIER_INIT(my_barrier, NR_TASKLETS);
@@ -83,7 +82,7 @@
  
      // dma constants
      const uint32_t point_bytes      = nfeatures * sizeof(dpu_feature_t);
-     const uint32_t max_pts_per_read = 2048 / point_bytes;  // ≤ 16
+     const uint32_t max_pts_per_read = 2048 / point_bytes;  
  
      // each tasklet gets its own chunk
      uint32_t idx = start;

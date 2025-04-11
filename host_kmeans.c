@@ -217,6 +217,8 @@ return data;
     //  feature_t *points = read_data_from_file(argv[1],
     //                                          &n_points, &n_features, &n_clusters);
 
+    srand((unsigned)time(NULL));
+
     feature_t *points = generate_data(
         &n_points, &n_features);
     printf("Loaded dataset: %u points, %u features, %u clusters\n",
@@ -224,17 +226,24 @@ return data;
  
     //  CPU reference for 10 iters
      feature_t *cpu_ctds = malloc(n_clusters * n_features * sizeof(feature_t));
+     feature_t *dpu_ctds = malloc(n_clusters * n_features * sizeof(feature_t));
+
      // init centroids
     for (unsigned c = 0; c < n_clusters; c++) {
         for (unsigned f = 0; f < n_features; f++) {
-            cpu_ctds[c*n_features + f] = 10.0 * c;
+            double r = ((double)rand() / (double)RAND_MAX) * MAX_NUMBER;
+            cpu_ctds[c*n_features + f] = r;
+            dpu_ctds[c*n_features + f] = r;
         }
     }
+    int CPU_MAX_ITER = 10;
+    char cpu_iter_label[50];
+    snprintf(cpu_iter_label, sizeof(cpu_iter_label), "CPU final (%i iters)", CPU_MAX_ITER);
     // run cpu and get time
     struct timespec cpu_start, cpu_finish;
     clock_gettime(CLOCK_MONOTONIC, &cpu_start);
-    cpu_reference_kmeans(points, cpu_ctds, n_points, n_features, n_clusters, 20);
-    print_centroids("CPU final (10 iters)", cpu_ctds, n_clusters, n_features);
+    cpu_reference_kmeans(points, cpu_ctds, n_points, n_features, n_clusters, CPU_MAX_ITER);
+    print_centroids(cpu_iter_label, cpu_ctds, n_clusters, n_features);
     clock_gettime(CLOCK_MONOTONIC, &cpu_finish);
 
     double cpu_elapsed = (cpu_finish.tv_sec - cpu_start.tv_sec) * 1e3 +
@@ -325,16 +334,16 @@ return data;
      double dpu_set_up_elapsed = (dpu_set_up2.tv_sec - dpu_set_up.tv_sec) * 1e3 +
                       (dpu_set_up2.tv_nsec - dpu_set_up.tv_nsec) / 1e6;
  
-     // prepare centroids on host side
-     feature_t *dpu_ctds = malloc(n_clusters * n_features * sizeof(feature_t));
-     // same init as CPU centroids
-     for (unsigned c = 0; c < n_clusters; c++) {
-         for (unsigned f = 0; f < n_features; f++) {
-             dpu_ctds[c*n_features + f] = 10.0 * c;
-         }
-     }
+    //  // prepare centroids on host side
+    //  feature_t *dpu_ctds = malloc(n_clusters * n_features * sizeof(feature_t));
+    //  // same init as CPU centroids
+    //  for (unsigned c = 0; c < n_clusters; c++) {
+    //      for (unsigned f = 0; f < n_features; f++) {
+    //          dpu_ctds[c*n_features + f] = 10.0 * c;
+    //      }
+    //  }
  
-     unsigned MAX_ITER = 20;
+     unsigned MAX_ITER = 10;
      double threshold  = 0.01;
      unsigned iter     = 0;
      double shift      = 99999.0;

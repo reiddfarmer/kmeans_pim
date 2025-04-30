@@ -39,43 +39,61 @@ gen_fp_data(unsigned *p_pts, unsigned *p_dim)
 }
 
 /* INT-CPU reference (mirrors DPU) */
-static void
+static unsigned
 kmeans_int16(const q_feature_t *pts,
              q_feature_t       *c,
-             unsigned N,unsigned D,unsigned K,
-             unsigned max_iter)
+             unsigned N, unsigned D, unsigned K,
+             double   thr,                /* convergence threshold   */
+             unsigned max_iter)           /* hard upper bound        */
 {
-    q_sum_t *sum = calloc((size_t)K*D,sizeof *sum);
-    count_t *cnt = calloc(K,sizeof *cnt);
-    if(!sum||!cnt){perror("calloc");exit(1);}
+    q_sum_t *sum = calloc((size_t)K*D, sizeof *sum);
+    count_t *cnt = calloc(K, sizeof *cnt);
+    if (!sum || !cnt) { perror("calloc"); exit(1); }
 
-    for(unsigned it=0; it<max_iter; ++it){
-        memset(sum,0,(size_t)K*D*sizeof *sum);
-        memset(cnt,0,K*sizeof *cnt);
+    q_feature_t *prev = malloc((size_t)K*D * sizeof *prev);
 
-        /* assign */
-        for(unsigned i=0;i<N;++i){
-            int64_t best=INT64_MAX; unsigned bestk=0;
-            for(unsigned k=0;k<K;++k){
-                int64_t dsq=0;
-                for(unsigned f=0;f<D;++f){
-                    int32_t d=(int32_t)pts[i*D+f]-c[k*D+f];
-                    dsq += (int64_t)d*d;
+    unsigned it = 0;
+    double shift = thr + 1.0;
+
+    while (it < max_iter && shift > thr) {
+        memcpy(prev, c, (size_t)K*D*sizeof *prev);
+        memset(sum, 0, (size_t)K*D*sizeof *sum);
+        memset(cnt, 0, K*sizeof *cnt);
+
+        // asign
+        for (unsigned i = 0; i < N; ++i) {
+            int64_t best = INT64_MAX; unsigned bestk = 0;
+            for (unsigned k = 0; k < K; ++k) {
+                int64_t dsq = 0;
+                for (unsigned f = 0; f < D; ++f) {
+                    int32_t d = (int32_t)pts[i*D+f] - c[k*D+f];
+                    dsq += (int64_t)d * d;
                 }
-                if(dsq<best){best=dsq; bestk=k;}
+                if (dsq < best) { best = dsq; bestk = k; }
             }
             cnt[bestk]++;
-            for(unsigned f=0;f<D;++f)
-                sum[bestk*D+f]+=pts[i*D+f];
+            for (unsigned f = 0; f < D; ++f)
+                sum[bestk*D+f] += pts[i*D+f];
         }
 
-        /* update — **pure integer mean with rounding toward zero** */
-        for(unsigned k=0;k<K;++k)
-            if(cnt[k])
-                for(unsigned f=0;f<D;++f)
-                    c[k*D+f]=(q_feature_t)(sum[k*D+f]/(int32_t)cnt[k]);
+        // update
+        for (unsigned k = 0; k < K; ++k)
+            if (cnt[k])
+                for (unsigned f = 0; f < D; ++f)
+                    c[k*D+f] = (q_feature_t)(sum[k*D+f] / (int32_t)cnt[k]);
+
+        // shift
+        shift = 0.0;
+        for (unsigned i = 0; i < K*D; ++i) {
+            double diff = (double)c[i] - (double)prev[i];
+            shift += diff*diff;
+        }
+        shift = sqrt(shift);
+        ++it;
     }
-    free(sum); free(cnt);
+
+    free(prev); free(sum); free(cnt);
+    return it;               /* <= max_iter */
 }
 
 // print
@@ -119,12 +137,18 @@ int main(int argc,char **argv)
 
     /* ---------------- CPU INT16 reference ---------------- */
     struct timespec t0,t1;
-    clock_gettime(CLOCK_MONOTONIC,&t0);
-    kmeans_int16(pts_q,cent_cpu,N,D,K,10);
-    clock_gettime(CLOCK_MONOTONIC,&t1);
-    double cpu_ms=(t1.tv_sec-t0.tv_sec)*1e3+(t1.tv_nsec-t0.tv_nsec)/1e6;
+    const double THR = 0.01;
+    const unsigned CPU_MAX = 300;
 
-    print_centroids("CPU-INT16 final (10 iters)",cent_cpu,K,D);
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    unsigned cpu_iters = kmeans_int16(pts_q, cent_cpu, N, D, K, THR, CPU_MAX);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+
+    double cpu_ms = (t1.tv_sec - t0.tv_sec)*1e3 +
+                    (t1.tv_nsec - t0.tv_nsec)/1e6;
+    char label[64];
+    snprintf(label, sizeof label, "CPU-INT16 final (%u iters)", cpu_iters);
+    print_centroids(label, cent_cpu, K, D);
 
     /* ---------------- DPU set-up ---------------- */
     struct timespec s0,s1;
@@ -167,11 +191,11 @@ int main(int argc,char **argv)
     double setup_ms=(s1.tv_sec-s0.tv_sec)*1e3+(s1.tv_nsec-s0.tv_nsec)/1e6;
 
     /* ---------------- iterative DPU K-means ---------------- */
-    const unsigned MAX_IT=10; const double THR=0.01;
+    const unsigned MAX_IT = cpu_iters;
     double comp_ms=0, read_ms=0;
 
     struct timespec run0,run1; clock_gettime(CLOCK_MONOTONIC,&run0);
-    unsigned it=0; double shift=THR+1;
+    unsigned it=0;
 
     q_feature_t *prev = malloc((size_t)K*D*sizeof *prev);
 
@@ -224,15 +248,10 @@ int main(int argc,char **argv)
             if(gc[k])
                 for(unsigned f=0;f<D;++f)
                     cent_dpu[k*D+f]=(q_feature_t)(gs[k*D+f]/(int32_t)gc[k]);
-
-        /* compute shift in integer space */
-        double s=0;
-        for(unsigned i=0;i<K*D;++i){
-            double diff=(double)cent_dpu[i] - (double)prev[i];
-            s+=diff*diff;
-        }
-        shift=sqrt(s);
-        it++; free(gs); free(gc);
+        
+        free(gs); 
+        free(gc);
+        it++; 
     }
     clock_gettime(CLOCK_MONOTONIC,&run1);
     double total_ms=(run1.tv_sec-run0.tv_sec)*1e3+(run1.tv_nsec-run0.tv_nsec)/1e6;

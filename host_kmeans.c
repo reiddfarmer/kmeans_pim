@@ -137,7 +137,7 @@ int main(int argc,char **argv)
 
     /* ---------------- CPU INT16 reference ---------------- */
     struct timespec t0,t1;
-    const double THR = 0.01;
+    const double THR = 0.0001;
     const unsigned CPU_MAX = 300;
 
     clock_gettime(CLOCK_MONOTONIC, &t0);
